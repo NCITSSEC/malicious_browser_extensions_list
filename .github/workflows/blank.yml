@@ -1,16 +1,16 @@
-name: Daily Browser Extensions Sync
+name: Daily Active Browser Extensions Sync
 
 on:
   schedule:
-    # 매일 UTC 00:00 (한국 시간 기준 매일 아침 09:00)에 실행
+    # 매일 UTC 00:00 (한국 시간 아침 9시)에 자동 실행
     - cron: '0 0 * * *'
-  workflow_dispatch: # Actions 탭에서 수동으로 'Run workflow' 버튼 눌러 테스트 가능
+  workflow_dispatch: # Actions 탭에서 언제든 즉시 수동 실행 가능
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # 커밋 및 푸시 권한 부여
+      contents: write
 
     steps:
       - name: Checkout Repository
@@ -25,7 +25,7 @@ jobs:
         run: |
           pip install pandas requests
 
-      - name: Run Sync Script
+      - name: Run Active Extension Checker
         id: sync_step
         run: python sync_extensions.py
 
@@ -35,5 +35,5 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add browser_extensions_list.csv
-          git commit -m "Auto-update: sync latest browser extensions [skip ci]"
+          git commit -m "Auto-update: add active malicious extensions [skip ci]"
           git push
