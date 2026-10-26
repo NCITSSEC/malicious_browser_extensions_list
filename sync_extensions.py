@@ -137,15 +137,14 @@ def main():
     # ID 기준으로 정렬
     active_results.sort(key=lambda x: x['browser_extension_id'])
     
-    # Save to both filenames for full workflow compatibility
-    for path in ['malicious_browser_extensions_list.csv', 'browser_extensions_list.csv']:
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=TARGET_COLUMNS)
-            writer.writeheader()
-            writer.writerows(active_results)
-        print(f"[+] CSV 저장 완료: {path}")
+    # CSV 저장 (UTF-8-BOM)
+    with open(OUTPUT_CSV_PATH, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=TARGET_COLUMNS)
+        writer.writeheader()
+        writer.writerows(active_results)
+    print(f"[+] CSV 저장 완료: {OUTPUT_CSV_PATH}")
         
-    # GitHub Actions output setting for blank.yml compatibility
+    # GitHub Actions output setting
     gh_output = os.environ.get('GITHUB_OUTPUT')
     if gh_output:
         try:
