@@ -5,9 +5,11 @@ import re
 import csv
 import ssl
 import time
+import json
 import urllib.request
 import concurrent.futures
 
+# 콘솔 출력 UTF-8 인코딩 설정
 if sys.stdout.encoding != 'utf-8':
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -18,6 +20,7 @@ ctx = ssl._create_unverified_context()
 
 SOURCE_CSV_URL = "https://raw.githubusercontent.com/mthcht/awesome-lists/main/Lists/Browser%20Extensions/browser_extensions_list.csv"
 OUTPUT_CSV_PATH = "malicious_browser_extensions_list.csv"
+REPORT_HTML_PATH = "new_extensions_report.html"
 
 TARGET_COLUMNS = [
     'browser_extension',
@@ -27,6 +30,19 @@ TARGET_COLUMNS = [
     'metadata_link',
     'metadata_comment'
 ]
+
+def load_existing_ids():
+    """
+    기존에 저장되어 있던 CSV 파일에서 이미 등록된 ID 목록 추출
+    """
+    if not os.path.exists(OUTPUT_CSV_PATH):
+        return set()
+    try:
+        with open(OUTPUT_CSV_PATH, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            return set(r['browser_extension_id'].strip().lower() for r in reader if r.get('browser_extension_id'))
+    except Exception:
+        return set()
 
 def fetch_source_rows():
     print(f"[*] 원본 CSV 다운로드 중: {SOURCE_CSV_URL}")
@@ -81,7 +97,66 @@ def check_webstore_active(row):
             
     return None
 
+def generate_email_html(new_items):
+    """
+    신규 발견된 악성 확장 프로그램에 대한 깔끔한 HTML 메일 본문 생성
+    """
+    rows_html = ""
+    for item in new_items:
+        store_url = f"https://chromewebstore.google.com/detail/{item['browser_extension_id']}"
+        ref_link = f"<a href='{item['metadata_link']}' target='_blank'>링크</a>" if item['metadata_link'] else "-"
+        rows_html += f"""
+        <tr>
+            <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">{item['browser_extension']}</td>
+            <td style="padding: 10px; border: 1px solid #ddd; font-family: monospace;">
+                <a href="{store_url}" target="_blank">{item['browser_extension_id']}</a>
+            </td>
+            <td style="padding: 10px; border: 1px solid #ddd;"><span style="background-color: #ffebe9; color: #cf222e; padding: 2px 6px; border-radius: 4px; font-size: 12px;">{item['metadata_category']}</span></td>
+            <td style="padding: 10px; border: 1px solid #ddd;">{ref_link}</td>
+            <td style="padding: 10px; border: 1px solid #ddd; font-size: 13px; color: #555;">{item['metadata_comment']}</td>
+        </tr>
+        """
+
+    html = f"""
+    <html>
+    <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; max-width: 900px; margin: 0 auto; padding: 20px;">
+        <div style="background: linear-gradient(135deg, #1f2937, #111827); color: white; padding: 20px; border-radius: 8px 8px 0 0;">
+            <h2 style="margin: 0;">🚨 신규 활성 악성 확장 프로그램 감지 알림</h2>
+            <p style="margin: 5px 0 0; opacity: 0.85; font-size: 14px;">크롬 웹 스토어에서 현재 설치 가능한 신규 의심 확장 프로그램이 발견되었습니다.</p>
+        </div>
+        <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; border-radius: 0 0 8px 8px; background-color: #ffffff;">
+            <p><strong>감지 일시:</strong> {time.strftime('%Y-%m-%d %H:%M:%S')} (KST)</p>
+            <p><strong>신규 발견 건수:</strong> <span style="font-size: 18px; color: #d9381e; font-weight: bold;">{len(new_items)}건</span></p>
+            
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px;">
+                <thead>
+                    <tr style="background-color: #f3f4f6; text-align: left;">
+                        <th style="padding: 10px; border: 1px solid #ddd;">확장 프로그램명</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">Extension ID</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">카테고리</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">분석 링크</th>
+                        <th style="padding: 10px; border: 1px solid #ddd;">코멘트</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows_html}
+                </tbody>
+            </table>
+            
+            <div style="margin-top: 25px; padding: 15px; background-color: #f9fafb; border-radius: 6px; font-size: 13px; color: #666;">
+                📌 <strong>저장소 바로가기:</strong> <a href="https://github.com/NCITSSEC/malicious_browser_extensions_list" target="_blank">NCITSSEC/malicious_browser_extensions_list</a><br>
+                본 메일은 GitHub Actions 자동 모니터링 시스템을 통해 발송되었습니다.
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
 def main():
+    existing_ids = load_existing_ids()
+    print(f"[*] 기존 등록되어 있던 확장 프로그램 수: {len(existing_ids)}개")
+    
     rows = fetch_source_rows()
     print(f"[*] 원본 CSV 전체 행: {len(rows)}개")
     
@@ -134,6 +209,14 @@ def main():
                 
     print(f"[+] 4가지 조건 모두 충족된 최종 데이터 수: {len(active_results)}개")
     
+    # 신규 확장 프로그램 식별
+    new_items = []
+    if existing_ids:
+        for item in active_results:
+            if item['browser_extension_id'] not in existing_ids:
+                new_items.append(item)
+    print(f"[+] 신규 추가 감지된 확장 프로그램: {len(new_items)}개")
+    
     # ID 기준으로 정렬
     active_results.sort(key=lambda x: x['browser_extension_id'])
     
@@ -143,13 +226,21 @@ def main():
         writer.writeheader()
         writer.writerows(active_results)
     print(f"[+] CSV 저장 완료: {OUTPUT_CSV_PATH}")
+    
+    # 신규 발견 건수가 있는 경우 HTML 리포트 생성
+    if new_items:
+        html_content = generate_email_html(new_items)
+        with open(REPORT_HTML_PATH, "w", encoding="utf-8") as f:
+            f.write(html_content)
+        print(f"[+] 이메일 리포트 생성 완료: {REPORT_HTML_PATH}")
         
-    # GitHub Actions output setting
+    # GitHub Actions 환경변수 출력 설정
     gh_output = os.environ.get('GITHUB_OUTPUT')
     if gh_output:
         try:
             with open(gh_output, 'a', encoding='utf-8') as f:
-                f.write("has_changes=true\n")
+                f.write(f"has_new={'true' if new_items else 'false'}\n")
+                f.write(f"new_count={len(new_items)}\n")
         except Exception:
             pass
 
