@@ -21,6 +21,7 @@ ctx = ssl._create_unverified_context()
 SOURCE_CSV_URL = "https://raw.githubusercontent.com/mthcht/awesome-lists/main/Lists/Browser%20Extensions/browser_extensions_list.csv"
 OUTPUT_CSV_PATH = "malicious_browser_extensions_list.csv"
 REPORT_HTML_PATH = "new_extensions_report.html"
+EXCLUDE_LIST_PATH = "exclude_list.txt"
 
 TARGET_COLUMNS = [
     'browser_extension',
@@ -30,6 +31,35 @@ TARGET_COLUMNS = [
     'metadata_link',
     'metadata_comment'
 ]
+
+# 기본 제외 ID 목록 (Chrome Remote Desktop, AdBlock, Google Translate 등 정상 확장 프로그램)
+DEFAULT_EXCLUDE_IDS = {
+    'inomeogfingihgjfjlpeplalcfajhgai',  # Chrome Remote Desktop
+    'gighmmpiobklfepjocnamgkkbiglidom',  # AdBlock
+    'aapbdbdomjkkjkaonfhkkikfgjllcleb'   # Google Translate
+}
+
+def load_exclude_ids():
+    """
+    제외할 확장 프로그램 ID 목록 로드 (기본 세트 + exclude_list.txt)
+    """
+    exclude_ids = set(DEFAULT_EXCLUDE_IDS)
+    if os.path.exists(EXCLUDE_LIST_PATH):
+        try:
+            with open(EXCLUDE_LIST_PATH, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    # 주석(#) 분리 및 ID 추출
+                    eid = line.split('#')[0].strip().lower()
+                    if len(eid) == 32 and re.fullmatch(r'[a-p]{32}', eid):
+                        exclude_ids.add(eid)
+        except Exception as e:
+            print(f"[!] 제외 목록 파일 로드 중 경고: {e}")
+            
+    print(f"[*] 총 {len(exclude_ids)}개의 제외 대상 ID가 설정되었습니다.")
+    return exclude_ids
 
 def load_existing_ids():
     """
@@ -154,6 +184,7 @@ def generate_email_html(new_items):
     return html
 
 def main():
+    exclude_ids = load_exclude_ids()
     existing_ids = load_existing_ids()
     print(f"[*] 기존 등록되어 있던 확장 프로그램 수: {len(existing_ids)}개")
     
@@ -168,6 +199,10 @@ def main():
         eid = (r.get('browser_extension_id') or '').strip().lower()
         cat = (r.get('metadata_category') or '').strip()
         
+        # [제외 목록] 특정 제외 대상 ID 건너뛰기
+        if eid in exclude_ids:
+            continue
+            
         # [조건 2] 'browser_extension_id' 값이 비정상적인 것은 제외 (32자리 영문 소문자 a-p)
         if len(eid) != 32 or not re.fullmatch(r'[a-p]{32}', eid):
             continue
@@ -187,7 +222,7 @@ def main():
         seen_ids.add(eid)
         candidates.append(r)
         
-    print(f"[*] 조건 2, 3, 4 충족 후보군: {len(candidates)}개 (스토어 실시간 검증 대상)")
+    print(f"[*] 조건 및 제외 필터링 후 후보군: {len(candidates)}개 (스토어 실시간 검증 대상)")
     
     # [조건 1] 크롬 웹 스토어 설치 가능 여부 실시간 병렬 검증
     active_results = []
@@ -207,9 +242,9 @@ def main():
                 elapsed = time.time() - start_time
                 print(f"    - 진행률: {completed}/{total} 완료 ({len(active_results)}개 활성 확인됨) [{elapsed:.1f}초]")
                 
-    print(f"[+] 4가지 조건 모두 충족된 최종 데이터 수: {len(active_results)}개")
+    print(f"[+] 최종 유효 데이터 수: {len(active_results)}개")
     
-    # 신규 확장 프로그램 식별
+    # 신규 확장 프로그램 식별 (기존 목록에 없고 제외 대상도 아닌 신규)
     new_items = []
     if existing_ids:
         for item in active_results:
