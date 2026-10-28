@@ -6,8 +6,14 @@ import csv
 import ssl
 import time
 import json
+import html as html_utils
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 import urllib.request
+import urllib.error
 import concurrent.futures
+from html.parser import HTMLParser
+from urllib.parse import urlparse
 
 # 콘솔 출력 UTF-8 인코딩 설정
 if sys.stdout.encoding != 'utf-8':
@@ -16,12 +22,68 @@ if sys.stdout.encoding != 'utf-8':
     except Exception:
         pass
 
-ctx = ssl._create_unverified_context()
+ctx = ssl.create_default_context()
 
 SOURCE_CSV_URL = "https://raw.githubusercontent.com/mthcht/awesome-lists/main/Lists/Browser%20Extensions/browser_extensions_list.csv"
 OUTPUT_CSV_PATH = "malicious_browser_extensions_list.csv"
 REPORT_HTML_PATH = "new_extensions_report.html"
 EXCLUDE_LIST_PATH = "exclude_list.txt"
+STATE_PATH = "source_observations.json"
+
+def observed_at():
+    return datetime.now(timezone(timedelta(hours=9))).isoformat(timespec='seconds')
+
+def load_state():
+    if not os.path.exists(STATE_PATH):
+        return None
+    with open(STATE_PATH, encoding='utf-8') as f:
+        state = json.load(f)
+    if state.get('version') != 1 or not isinstance(state.get('ids'), dict):
+        raise ValueError('관측 이력 형식 오류: 기존 파일을 확인하세요.')
+    for eid, entry in state['ids'].items():
+        if not isinstance(entry, dict) or not isinstance(entry.get('baseline'), bool) or not isinstance(entry.get('notified'), bool) or not isinstance(entry.get('first_seen'), str):
+            raise ValueError(f'관측 이력 항목 오류: {eid}')
+    return state
+
+def update_observations(rows, state, existing_ids, now):
+    # 필터 적용 전 원본 전체 ID를 보관해야 기존의 비활성 항목을 신규로 오인하지 않는다.
+    initializing = state is None
+    if initializing:
+        state = {'version': 1, 'baseline_at': now, 'ids': {}}
+    ids = {(r.get('browser_extension_id') or '').strip().lower() for r in rows}
+    ids.update(existing_ids)
+    for eid in sorted(ids - {''}):
+        state['ids'].setdefault(eid, {
+            'first_seen': now, 'baseline': initializing or eid in existing_ids,
+            'notified': eid in existing_ids,
+        })
+    return state, initializing
+
+def select_new_items(active_results, state, now):
+    items = []
+    for item in sorted(active_results, key=lambda x: x['browser_extension_id']):
+        entry = state['ids'][item['browser_extension_id']]
+        if not entry['baseline'] and not entry['notified']:
+            items.append(item)
+            entry['notified'] = True
+            entry['qualified_at'] = now
+    return items
+
+def atomic_write(path, content, encoding='utf-8'):
+    temporary = Path(str(path) + '.tmp')
+    with temporary.open('w', encoding=encoding, newline='') as f:
+        f.write(content)
+    os.replace(temporary, path)
+
+def acknowledge_notifications():
+    state = load_state()
+    if state is None:
+        raise RuntimeError('메일 확인 처리에 필요한 관측 이력이 없습니다.')
+    for entry in state.get('pending_notifications', {}).values():
+        state['ids'][entry['browser_extension_id']]['emailed_at'] = observed_at()
+    state['pending_notifications'] = {}
+    atomic_write(STATE_PATH, json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
+    print('[+] 발송 완료한 알림 대기열을 비웠습니다.')
 
 TARGET_COLUMNS = [
     'browser_extension',
@@ -70,17 +132,61 @@ def load_existing_ids():
     try:
         with open(OUTPUT_CSV_PATH, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
+            if not set(TARGET_COLUMNS).issubset(reader.fieldnames or []):
+                raise ValueError('기존 CSV 필수 컬럼이 없습니다.')
             return set(r['browser_extension_id'].strip().lower() for r in reader if r.get('browser_extension_id'))
-    except Exception:
-        return set()
+    except Exception as exc:
+        raise RuntimeError('기존 CSV를 읽지 못했습니다. 갱신을 중단합니다.') from exc
 
 def fetch_source_rows():
     print(f"[*] 원본 CSV 다운로드 중: {SOURCE_CSV_URL}")
     req = urllib.request.Request(SOURCE_CSV_URL, headers={'User-Agent': 'Mozilla/5.0'})
     with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-        content = resp.read().decode('utf-8', errors='ignore')
+        content = resp.read().decode('utf-8-sig')
     reader = csv.DictReader(io.StringIO(content))
-    return list(reader)
+    if not set(TARGET_COLUMNS).issubset(reader.fieldnames or []):
+        raise ValueError('원본 CSV 필수 컬럼이 없습니다.')
+    rows = list(reader)
+    if not rows:
+        raise ValueError('원본 CSV가 비어 있습니다.')
+    return rows
+
+class StorePage(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.canonical = ''
+        self.text = []
+        self.hidden_depth = 0
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag in ('script', 'style'):
+            self.hidden_depth += 1
+        if tag == 'link' and 'canonical' in attrs.get('rel', '').split():
+            self.canonical = attrs.get('href', '')
+
+    def handle_endtag(self, tag):
+        if tag in ('script', 'style') and self.hidden_depth:
+            self.hidden_depth -= 1
+
+    def handle_data(self, data):
+        if not self.hidden_depth:
+            self.text.append(data)
+
+def store_page_active(body, ext_id):
+    page = StorePage()
+    page.feed(body)
+    text = ' '.join(' '.join(page.text).split()).lower()
+    if any(marker in text for marker in (
+        'this item is not available', 'this item is no longer available',
+        'this extension is no longer available', 'item not found',
+    )):
+        return False
+    canonical = urlparse(page.canonical)
+    matches_id = re.fullmatch(r'/detail/(?:[^/]+/)?' + re.escape(ext_id) + r'/?', canonical.path)
+    if canonical.scheme == 'https' and canonical.hostname == 'chromewebstore.google.com' and matches_id and 'add to chrome' in text:
+        return True
+    raise ValueError('대상 ID의 스토어 상세 페이지와 Add to Chrome 표시를 확인할 수 없습니다.')
 
 def check_webstore_active(row):
     """
@@ -99,15 +205,7 @@ def check_webstore_active(row):
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, context=ctx, timeout=8) as resp:
                 body = resp.read().decode('utf-8', errors='ignore')
-                canonical_match = re.search(r'<link\s+rel="canonical"\s+href="(.*?)"', body)
-                canonical = canonical_match.group(1).strip() if canonical_match else ""
-                
-                title_match = re.search(r'<title>(.*?)</title>', body)
-                raw_title = title_match.group(1).strip() if title_match else ""
-                clean_title = re.sub(r'\s*-\s*Chrome Web Store$', '', raw_title, flags=re.IGNORECASE).strip()
-                
-                # 유효한 크롬 웹스토어 상세 페이지 확인
-                if canonical and '/detail/' in canonical and clean_title and clean_title != "Chrome Web Store":
+                if store_page_active(body, ext_id):
                     clean_row = {
                         'browser_extension': row.get('browser_extension', '').strip(),
                         'browser_extension_id': ext_id,
@@ -125,16 +223,17 @@ def check_webstore_active(row):
         except Exception:
             time.sleep(0.5)
             
-    return None
+    raise RuntimeError(f'스토어 상태 확인 실패: {ext_id} (CSV 및 관측 이력 갱신 중단)')
 
 def generate_email_html(new_items):
     """
     신규 발견된 악성 확장 프로그램에 대한 깔끔한 HTML 메일 본문 생성
     """
     rows_html = ""
-    for item in new_items:
+    for original in new_items:
+        item = {key: html_utils.escape(str(value), quote=True) for key, value in original.items()}
         store_url = f"https://chromewebstore.google.com/detail/{item['browser_extension_id']}"
-        ref_link = f"<a href='{item['metadata_link']}' target='_blank'>링크</a>" if item['metadata_link'] else "-"
+        ref_link = f"<a href='{item['metadata_link']}' target='_blank'>링크</a>" if original['metadata_link'].startswith(('https://', 'http://')) else "-"
         rows_html += f"""
         <tr>
             <td style="padding: 10px; border: 1px solid #ddd; font-weight: bold;">{item['browser_extension']}</td>
@@ -155,7 +254,8 @@ def generate_email_html(new_items):
             <p style="margin: 5px 0 0; opacity: 0.85; font-size: 14px;">크롬 웹 스토어에서 현재 설치 가능한 신규 의심 확장 프로그램이 발견되었습니다.</p>
         </div>
         <div style="border: 1px solid #e5e7eb; border-top: none; padding: 20px; border-radius: 0 0 8px 8px; background-color: #ffffff;">
-            <p><strong>감지 일시:</strong> {time.strftime('%Y-%m-%d %H:%M:%S')} (KST)</p>
+            <p><strong>감지 일시:</strong> {observed_at()} (KST)</p>
+            <p>기준선 이후 원본에서 처음 관측했으며 수집 조건을 통과한 ID입니다. 원본 등록일이나 악성 행위 시작일을 뜻하지 않습니다.</p>
             <p><strong>신규 발견 건수:</strong> <span style="font-size: 18px; color: #d9381e; font-weight: bold;">{len(new_items)}건</span></p>
             
             <table style="width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px;">
@@ -190,6 +290,10 @@ def main():
     
     rows = fetch_source_rows()
     print(f"[*] 원본 CSV 전체 행: {len(rows)}개")
+    now = observed_at()
+    state, initializing = update_observations(rows, load_state(), existing_ids, now)
+    if initializing:
+        print('[*] 최초 실행: 원본 전체 ID를 기준선으로 등록합니다. 기존 항목은 신규 알림에서 제외합니다.')
     
     candidates = []
     seen_ids = set()
@@ -245,39 +349,47 @@ def main():
     print(f"[+] 최종 유효 데이터 수: {len(active_results)}개")
     
     # 신규 확장 프로그램 식별 (기존 목록에 없고 제외 대상도 아닌 신규)
-    new_items = []
-    if existing_ids:
-        for item in active_results:
-            if item['browser_extension_id'] not in existing_ids:
-                new_items.append(item)
+    new_items = select_new_items(active_results, state, now)
+    pending = state.setdefault('pending_notifications', {})
+    for item in new_items:
+        pending[item['browser_extension_id']] = item
+    # 이전 실행에서 SMTP 발송에 실패한 항목도 재시도한다.
+    new_items = [pending[eid] for eid in sorted(pending)]
+    html_content = generate_email_html(new_items) if new_items else None
     print(f"[+] 신규 추가 감지된 확장 프로그램: {len(new_items)}개")
     
     # ID 기준으로 정렬
     active_results.sort(key=lambda x: x['browser_extension_id'])
     
     # CSV 저장 (UTF-8-BOM)
-    with open(OUTPUT_CSV_PATH, "w", newline="", encoding="utf-8-sig") as f:
-        writer = csv.DictWriter(f, fieldnames=TARGET_COLUMNS)
-        writer.writeheader()
-        writer.writerows(active_results)
+    buffer = io.StringIO(newline='')
+    writer = csv.DictWriter(buffer, fieldnames=TARGET_COLUMNS)
+    writer.writeheader()
+    writer.writerows(active_results)
+    atomic_write(OUTPUT_CSV_PATH, buffer.getvalue(), 'utf-8-sig')
+    atomic_write(STATE_PATH, json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + '\n')
     print(f"[+] CSV 저장 완료: {OUTPUT_CSV_PATH}")
     
     # 신규 발견 건수가 있는 경우 HTML 리포트 생성
     if new_items:
-        html_content = generate_email_html(new_items)
-        with open(REPORT_HTML_PATH, "w", encoding="utf-8") as f:
-            f.write(html_content)
+        atomic_write(REPORT_HTML_PATH, html_content)
         print(f"[+] 이메일 리포트 생성 완료: {REPORT_HTML_PATH}")
+    else:
+        Path(REPORT_HTML_PATH).unlink(missing_ok=True)
         
     # GitHub Actions 환경변수 출력 설정
     gh_output = os.environ.get('GITHUB_OUTPUT')
     if gh_output:
-        try:
-            with open(gh_output, 'a', encoding='utf-8') as f:
-                f.write(f"has_new={'true' if new_items else 'false'}\n")
-                f.write(f"new_count={len(new_items)}\n")
-        except Exception:
-            pass
+        with open(gh_output, 'a', encoding='utf-8') as f:
+            f.write(f"has_new={'true' if new_items else 'false'}\n")
+            f.write(f"new_count={len(new_items)}\n")
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ack-notifications', action='store_true', help='SMTP 발송 성공 후에만 알림 대기열을 비웁니다.')
+    args = parser.parse_args()
+    if args.ack_notifications:
+        acknowledge_notifications()
+    else:
+        main()

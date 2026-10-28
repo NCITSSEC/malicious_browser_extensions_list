@@ -1,0 +1,88 @@
+name: Daily Active Browser Extensions Sync & Email Alert
+
+on:
+  schedule:
+    # 매일 UTC 00:00 (한국 시간 오전 9:00) 자동 실행
+    - cron: '0 0 * * *'
+  workflow_dispatch: # GitHub 웹 콘솔에서 'Run workflow' 버튼으로 수동 즉시 실행 가능
+
+concurrency:
+  group: browser-extensions-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 환경 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 회귀 테스트
+        run: python -m unittest -q test_sync_extensions.py
+
+      - name: 확장 프로그램 필터링 및 검증 실행
+        id: sync_step
+        run: |
+          python sync_extensions.py
+
+      - name: 변경사항 감지 및 깃허브 커밋/푸시
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add malicious_browser_extensions_list.csv source_observations.json
+          if git diff --staged --quiet; then
+            echo "변경사항이 없습니다."
+          else
+            git commit -m "Auto-update: sync active malicious extensions [skip ci]"
+            git push
+            echo "성공적으로 커밋 및 푸시되었습니다."
+          fi
+
+      - name: 메일 설정 확인
+        if: steps.sync_step.outputs.has_new == 'true'
+        env:
+          MAIL_SERVER: ${{ secrets.MAIL_SERVER }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        shell: bash
+        run: |
+          for key in MAIL_SERVER MAIL_USERNAME MAIL_PASSWORD MAIL_TO; do
+            if [ -z "${!key}" ]; then
+              echo "::error::필수 Secret이 없습니다: $key. 알림은 대기열에 보존됩니다."
+              exit 1
+            fi
+          done
+
+      - name: 신규 악성 확장 프로그램 발견 시 이메일 발송
+        if: steps.sync_step.outputs.has_new == 'true'
+        id: send_mail
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.MAIL_SERVER }}
+          server_port: ${{ secrets.MAIL_PORT || 465 }}
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "🚨 [보안 알림] 신규 활성 악성 확장 프로그램 ${{ steps.sync_step.outputs.new_count }}건 감지"
+          to: ${{ secrets.MAIL_TO }}
+          from: "Chrome Extension Monitor <${{ secrets.MAIL_USERNAME }}>"
+          html_body: file://new_extensions_report.html
+
+      - name: 발송 완료 기록
+        if: steps.send_mail.outcome == 'success'
+        run: |
+          python sync_extensions.py --ack-notifications
+          git add source_observations.json
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-update: acknowledge extension alerts [skip ci]"
+            git push
+          fi
