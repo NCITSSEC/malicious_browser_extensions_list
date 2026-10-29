@@ -186,6 +186,17 @@ def store_page_active(body, ext_id):
     matches_id = re.fullmatch(r'/detail/(?:[^/]+/)?' + re.escape(ext_id) + r'/?', canonical.path)
     if canonical.scheme == 'https' and canonical.hostname == 'chromewebstore.google.com' and matches_id and 'add to chrome' in text:
         return True
+    # CWS는 존재하지 않거나 접근 불가한 항목도 HTTP 200의 빈 화면으로 응답한다.
+    # 상세 데이터(ds:0)의 명시적인 오류 상태를 확인하며, 빈 화면만으로는 제외하지 않는다.
+    status = re.search(
+        r'''AF_initDataCallback\(\{\s*key:\s*['"]ds:0['"]\s*,\s*data:\s*\[\s*(\d+)\s*\]\s*,\s*errorHasStatus:\s*true''',
+        body,
+    )
+    if not page.canonical and status:
+        code = int(status.group(1))
+        if code in (5, 7):  # NOT_FOUND / PERMISSION_DENIED: 현재 요청에서 설치 불가
+            return False
+        raise ValueError(f'스토어 상세 데이터 오류 상태: {code} (비활성으로 확정하지 않음)')
     raise ValueError('대상 ID의 스토어 상세 페이지와 Add to Chrome 표시를 확인할 수 없습니다.')
 
 def check_webstore_active(row):
@@ -200,6 +211,7 @@ def check_webstore_active(row):
     }
     
     max_retries = 2
+    last_error = None
     for _ in range(max_retries):
         try:
             req = urllib.request.Request(url, headers=headers)
@@ -217,13 +229,15 @@ def check_webstore_active(row):
                     return clean_row
                 return None
         except urllib.error.HTTPError as e:
+            last_error = e
             if e.code == 404:
                 return None
             time.sleep(1)
-        except Exception:
+        except Exception as e:
+            last_error = e
             time.sleep(0.5)
             
-    raise RuntimeError(f'스토어 상태 확인 실패: {ext_id} (CSV 및 관측 이력 갱신 중단)')
+    raise RuntimeError(f'스토어 상태 확인 실패: {ext_id}: {type(last_error).__name__}: {last_error}') from last_error
 
 def generate_email_html(new_items):
     """
@@ -330,6 +344,7 @@ def main():
     
     # [조건 1] 크롬 웹 스토어 설치 가능 여부 실시간 병렬 검증
     active_results = []
+    failed_checks = []
     start_time = time.time()
     total = len(candidates)
     completed = 0
@@ -339,12 +354,21 @@ def main():
         future_to_row = {executor.submit(check_webstore_active, row): row for row in candidates}
         for future in concurrent.futures.as_completed(future_to_row):
             completed += 1
-            res = future.result()
+            try:
+                res = future.result()
+            except Exception as exc:
+                failed_checks.append(str(exc))
+                res = None
             if res:
                 active_results.append(res)
             if completed % 100 == 0 or completed == total:
                 elapsed = time.time() - start_time
                 print(f"    - 진행률: {completed}/{total} 완료 ({len(active_results)}개 활성 확인됨) [{elapsed:.1f}초]")
+
+    if failed_checks:
+        for error in failed_checks[:10]:
+            print(f'[!] {error}')
+        raise RuntimeError(f'{len(failed_checks)}개 스토어 상태 확인 실패: CSV 및 관측 이력 갱신을 중단합니다.')
                 
     print(f"[+] 최종 유효 데이터 수: {len(active_results)}개")
     

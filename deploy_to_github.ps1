@@ -1,11 +1,17 @@
 param(
     [string]$Repository = 'NCITSSEC/malicious_browser_extensions_list',
     [switch]$SkipRun,
-    [switch]$UseEnvironmentToken
+    [switch]$UseEnvironmentToken,
+    [switch]$CleanupTests,
+    [switch]$DiagnoseOnly,
+    [switch]$VerifyAndCleanup
 )
 
 $ErrorActionPreference = 'Stop'
 $taskRoot = $PSScriptRoot
+if ($VerifyAndCleanup -and ($SkipRun -or $DiagnoseOnly -or $CleanupTests)) {
+    throw '-VerifyAndCleanup은 다른 실행 모드와 함께 사용할 수 없습니다.'
+}
 function Read-GitHubTokenDialog {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -135,12 +141,60 @@ function Invoke-RepoApi {
     }
 }
 
+function Remove-RemoteTestFiles {
+    param([string]$BranchPath)
+    $currentRef = Invoke-RepoApi "git/ref/heads/$BranchPath"
+    $currentCommit = Invoke-RepoApi "git/commits/$($currentRef.object.sha)"
+    $currentTree = Invoke-RepoApi "git/trees/$($currentCommit.tree.sha)"
+    $workflow = Invoke-RepoApi "contents/.github/workflows/daily_sync.yml?ref=$BranchPath"
+    $workflowText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($workflow.content))
+    $workflowText = [regex]::Replace($workflowText, '(?m)^      - name: 회귀 테스트\r?\n        run: python -m unittest -q test_sync_extensions\.py\r?\n\r?\n', '')
+    if ($workflowText.Contains('test_sync_extensions.py')) { throw '테스트 참조가 남아 있어 정리를 중단합니다.' }
+    $cleanupEntries = @(@{ path = '.github/workflows/daily_sync.yml'; mode = '100644'; type = 'blob'; content = $workflowText })
+    if ($currentTree.tree | Where-Object { $_.path -eq 'test_sync_extensions.py' }) {
+        $cleanupEntries += @{ path = 'test_sync_extensions.py'; mode = '100644'; type = 'blob'; sha = $null }
+    }
+    $cleanupTree = Invoke-RepoApi 'git/trees' 'POST' @{ base_tree = $currentCommit.tree.sha; tree = $cleanupEntries }
+    $cleanupCommit = Invoke-RepoApi 'git/commits' 'POST' @{
+        message = 'Remove repository test file after successful live verification'
+        tree = $cleanupTree.sha
+        parents = @($currentRef.object.sha)
+    }
+    $null = Invoke-RepoApi "git/refs/heads/$BranchPath" 'PATCH' @{ sha = $cleanupCommit.sha; force = $false }
+    $verifiedTree = Invoke-RepoApi "git/trees/$($cleanupTree.sha)"
+    if ($verifiedTree.tree | Where-Object { $_.path -eq 'test_sync_extensions.py' }) { throw '테스트 파일 삭제 검증에 실패했습니다.' }
+    Write-Output "테스트 전용 파일 및 워크플로 단계 정리 완료: https://github.com/$Repository/commit/$($cleanupCommit.sha)"
+}
+
 try {
+    if ($DiagnoseOnly) {
+        $workflowRuns = Invoke-RepoApi 'actions/workflows/daily_sync.yml/runs?per_page=1'
+        $lastRun = $workflowRuns.workflow_runs | Select-Object -First 1
+        if (-not $lastRun) { throw '확인할 Actions 실행이 없습니다.' }
+        Write-Output "실행 결과: $($lastRun.status) / $($lastRun.conclusion)"
+        Write-Output $lastRun.html_url
+        $jobs = Invoke-RepoApi "actions/runs/$($lastRun.id)/jobs"
+        $failedJobs = @($jobs.jobs | Where-Object { $_.conclusion -eq 'failure' })
+        foreach ($job in $failedJobs) {
+            $logPath = Join-Path ([IO.Path]::GetTempPath()) "ncitssec-actions-$($lastRun.id)-$($job.id).log"
+            $logUri = "https://api.github.com/repos/$Repository/actions/jobs/$($job.id)/logs"
+            # 파일로 직접 받아 Windows PowerShell의 text/plain 문자셋 오판을 방지한다.
+            Invoke-WebRequest -Uri $logUri -Headers $headers -UseBasicParsing -TimeoutSec 60 -OutFile $logPath
+            Write-Output "상세 로그 저장: $logPath"
+            Get-Content -LiteralPath $logPath -Encoding UTF8 | Select-Object -Last 60 | Write-Output
+        }
+        return
+    }
     Push-Location $taskRoot
     try {
-        Write-Host '[1/3] 회귀 테스트 실행 (실제 IoC 수집 아님)'
-        & python -m unittest -b -q test_sync_extensions.py
-        if ($LASTEXITCODE -ne 0) { throw '회귀 테스트 실패: 배포를 중단합니다.' }
+        $hasLocalTests = Test-Path -LiteralPath (Join-Path $taskRoot 'test_sync_extensions.py') -PathType Leaf
+        if ($hasLocalTests) {
+            Write-Host '[1/3] 회귀 테스트 실행 (실제 IoC 수집 아님)'
+            & python -m unittest -b -q test_sync_extensions.py
+            if ($LASTEXITCODE -ne 0) { throw '회귀 테스트 실패: 배포를 중단합니다.' }
+        } else {
+            Write-Host '[1/3] 로컬 테스트 파일 없음: 회귀 테스트 생략, 실제 Actions 결과로 검증합니다.'
+        }
     } finally { Pop-Location }
 
     Write-Host '[2/3] 저장소 확인 및 코드 반영'
@@ -152,17 +206,38 @@ try {
     $branchPath = [Uri]::EscapeDataString($branch)
     $reference = Invoke-RepoApi "git/ref/heads/$branchPath"
     $baseCommit = Invoke-RepoApi "git/commits/$($reference.object.sha)"
+    if ($CleanupTests) {
+        $workflowRuns = Invoke-RepoApi 'actions/workflows/daily_sync.yml/runs?per_page=1'
+        $lastRun = $workflowRuns.workflow_runs | Select-Object -First 1
+        if (-not $lastRun -or $lastRun.status -ne 'completed' -or $lastRun.conclusion -ne 'success') {
+            throw '최근 Actions 실행이 성공하지 않아 테스트 파일 정리를 보류합니다. 먼저 수집 오류를 해결하고 정상 실행을 확인하세요.'
+        }
+    }
     # 운영 CSV 및 관측 이력은 업로드하지 않아 기존 데이터를 보존한다.
     $files = @('sync_extensions.py', 'test_sync_extensions.py', 'README.md', 'exclude_list.txt', '.github/workflows/daily_sync.yml', 'deploy_to_github.ps1')
+    if ($CleanupTests -or -not $hasLocalTests) {
+        $files = $files | Where-Object { $_ -ne 'test_sync_extensions.py' }
+    }
     $entries = @()
     foreach ($file in $files) {
         $localPath = Join-Path $taskRoot $file
         if (-not (Test-Path -LiteralPath $localPath -PathType Leaf)) { throw "필수 파일 누락: $file" }
+        $content = [IO.File]::ReadAllText($localPath, [Text.Encoding]::UTF8)
+        if (($CleanupTests -or -not $hasLocalTests) -and $file -eq '.github/workflows/daily_sync.yml') {
+            $content = [regex]::Replace($content, '(?m)^      - name: 회귀 테스트\r?\n        run: python -m unittest -q test_sync_extensions\.py\r?\n\r?\n', '')
+            if ($content.Contains('test_sync_extensions.py')) { throw '워크플로의 테스트 참조를 제거하지 못해 정리를 중단합니다.' }
+        }
         $entries += @{
             path = $file
             mode = '100644'
             type = 'blob'
-            content = [IO.File]::ReadAllText($localPath, [Text.Encoding]::UTF8)
+            content = $content
+        }
+    }
+    if ($CleanupTests) {
+        $remoteTree = Invoke-RepoApi "git/trees/$($baseCommit.tree.sha)"
+        if ($remoteTree.tree | Where-Object { $_.path -eq 'test_sync_extensions.py' }) {
+            $entries += @{ path = 'test_sync_extensions.py'; mode = '100644'; type = 'blob'; sha = $null }
         }
     }
     $tree = Invoke-RepoApi 'git/trees' 'POST' @{ base_tree = $baseCommit.tree.sha; tree = $entries }
@@ -181,6 +256,29 @@ try {
         Write-Output '첫 실행을 요청했습니다. 기준선이 없는 경우 기존 항목에 대한 메일은 보내지 않습니다.'
     }
     Write-Output "실행 결과 확인: https://github.com/$Repository/actions/workflows/daily_sync.yml"
+    if ($VerifyAndCleanup) {
+        Write-Host '[검증] 이번 커밋의 Actions 실행 완료를 기다립니다.'
+        $deadline = [DateTime]::UtcNow.AddMinutes(65)
+        $verifiedRun = $null
+        do {
+            $runList = Invoke-RepoApi 'actions/workflows/daily_sync.yml/runs?event=workflow_dispatch&per_page=20'
+            $verifiedRun = $runList.workflow_runs | Where-Object { $_.head_sha -eq $commit.sha } | Select-Object -First 1
+            if ($verifiedRun) {
+                Write-Host "[검증] $($verifiedRun.status) / $($verifiedRun.conclusion)"
+                if ($verifiedRun.status -eq 'completed') { break }
+            }
+            if ([DateTime]::UtcNow -gt $deadline) { throw 'Actions 완료 대기 시간이 초과되었습니다. 테스트 파일은 삭제하지 않았습니다.' }
+            Start-Sleep -Seconds 20
+        } while ($true)
+        if ($verifiedRun.conclusion -ne 'success') {
+            throw "실제 Actions 실행 실패: $($verifiedRun.html_url). 테스트 파일은 보존했습니다. -DiagnoseOnly로 로그를 확인하세요."
+        }
+        $baselineFile = Invoke-RepoApi "contents/source_observations.json?ref=$branchPath"
+        $baselineState = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($baselineFile.content)) | ConvertFrom-Json
+        if ($baselineState.version -ne 1 -or -not $baselineState.ids) { throw '운영 관측 이력이 확인되지 않아 정리를 중단합니다.' }
+        Write-Host '[검증] 실제 수집 및 관측 이력 저장 성공. 테스트 파일을 정리합니다.'
+        Remove-RemoteTestFiles $branchPath
+    }
 } finally {
     $headers.Clear()
     $token = $null

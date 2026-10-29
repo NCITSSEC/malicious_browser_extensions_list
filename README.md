@@ -21,9 +21,15 @@
 
 스토어 검사는 대상 ID의 canonical URL과 페이지 본문의 `Add to Chrome` 표시를 확인합니다. 명시적인 사용 불가 문구나 HTTP 404는 비활성으로 처리합니다. 실제 설치 수행이나 국가·계정·브라우저 정책별 설치 허용까지 검증하는 방식은 아닙니다.
 
+HTTP 200이더라도 상세 데이터 `ds:0`에 명시적인 NOT_FOUND(5) 또는 PERMISSION_DENIED(7) 오류가 있으면 현재 요청에서 설치 불가로 처리합니다. 이는 영구 삭제 여부를 확정하는 뜻이 아닙니다. 코드 8/13/14 등의 오류나 원인을 확인할 수 없는 빈 화면은 일시 오류 가능성을 고려해 갱신을 중단합니다. 이 응답 구조는 관측한 CWS 페이지에 기반하며 변경될 수 있습니다.
+
 회귀 검증: `python -m unittest -v test_sync_extensions.py`
 
 ## 수정본 반영
+
+수정본 반영부터 실제 실행 검증과 테스트 파일 정리까지 한 번에 진행하려면 `./deploy_to_github.ps1 -VerifyAndCleanup`을 실행하세요. 이번 배포 커밋의 Actions 실행이 성공하고 운영 관측 이력이 생성된 것을 확인한 뒤에만 GitHub의 테스트 파일과 워크플로 테스트 단계를 제거합니다. 실패 시에는 테스트 파일을 보존합니다. 토큰 입력은 한 번만 필요합니다. 상세 오류 로그는 `./deploy_to_github.ps1 -DiagnoseOnly`로 UTF-8 원본을 임시 폴더에 다운로드할 수 있습니다.
+
+실행 성공 후 GitHub의 테스트 전용 파일을 정리하려면 `./deploy_to_github.ps1 -CleanupTests`를 실행하세요. 최근 Actions 실행이 성공했는지 확인한 뒤 `test_sync_extensions.py`와 워크플로의 해당 테스트 단계를 함께 제거합니다. 로컬 테스트 파일은 향후 배포 전 검증용으로 보관하며, 운영 CSV와 관측 이력은 삭제하지 않습니다.
 
 배포 중 읽기 GET 요청은 성공하지만 `POST /git/trees`가 403/404로 실패하면 토큰의 쓰기 권한 또는 저장소 범위를 확인하세요. Fine-grained PAT는 Resource owner를 `NCITSSEC`로 설정하고 대상 저장소를 선택한 뒤 Contents, Workflows, Actions를 각각 Read and write로 설정해야 합니다. 조직에서 승인을 요구하면 승인 완료가 필요합니다. 공개 저장소에 Classic PAT를 사용하는 경우 `public_repo`와 `workflow` 범위가 필요합니다. 토큰 소유 계정 자체에도 해당 저장소의 쓰기 권한이 있어야 합니다.
 

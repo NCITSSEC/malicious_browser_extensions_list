@@ -31,6 +31,17 @@ class ObservationTests(unittest.TestCase):
     def test_store_explicit_unavailable(self):
         self.assertFalse(sync.store_page_active('<p>This item is not available</p>', OLD))
 
+    def test_store_http_200_with_explicit_detail_error(self):
+        for code in (5, 7):
+            body = f"<title>Chrome Web Store</title><script>AF_initDataCallback({{key: 'ds:0', data:[{code}],errorHasStatus: true,}});</script>"
+            self.assertFalse(sync.store_page_active(body, OLD))
+        for code in (8, 13, 14):
+            body = f"<script>AF_initDataCallback({{key: 'ds:0', data:[{code}],errorHasStatus: true,}});</script>"
+            with self.assertRaises(ValueError):
+                sync.store_page_active(body, OLD)
+        with self.assertRaises(ValueError):
+            sync.store_page_active('<title>Chrome Web Store</title>', OLD)
+
     def test_initial_source_includes_inactive_and_excluded_ids(self):
         state, initial = sync.update_observations([row(OLD), row(NEW, category='VPN')], None, set(), NOW)
         self.assertTrue(initial)

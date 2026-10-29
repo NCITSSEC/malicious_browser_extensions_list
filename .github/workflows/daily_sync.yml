@@ -32,7 +32,7 @@ jobs:
       - name: 확장 프로그램 필터링 및 검증 실행
         id: sync_step
         run: |
-          python sync_extensions.py
+          python -u sync_extensions.py
 
       - name: 변경사항 감지 및 깃허브 커밋/푸시
         run: |
