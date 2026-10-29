@@ -407,6 +407,8 @@ def main():
         with open(gh_output, 'a', encoding='utf-8') as f:
             f.write(f"has_new={'true' if new_items else 'false'}\n")
             f.write(f"new_count={len(new_items)}\n")
+            f.write(f"active_count={len(active_results)}\n")
+            f.write(f"source_count={len(rows)}\n")
 
 if __name__ == "__main__":
     import argparse
