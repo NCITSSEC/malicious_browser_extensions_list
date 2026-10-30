@@ -1,4 +1,4 @@
-browser_extension,browser_extension_id,metadata_category,metadata_type,metadata_link,metadata_comment
+﻿browser_extension,browser_extension_id,metadata_category,metadata_type,metadata_link,metadata_comment
 Best Snake,aahhemfjdkjamblajnjcddcffpcpmlia,malware,malicious,,credentials stealer
 Bookmark Favicon Changer,acmfnomgphggonodopogfbmkneepfgnh,compromised,malicious,https://www.extensiontotal.com/cyberhaven-incident-live,compromised extensions
 10xprofit Amazon Seller Tools,ahlnchhkedmjbdocaamkbmhppnligmoh,malware,malicious,https://socket.dev/blog/malicious-chrome-extension-performs-hidden-affiliate-hijacking?utm_medium=feed,
@@ -69,7 +69,6 @@ Tarot Side Panel,fibgndhgobbaaekmnneapojgkcehaeac,malware,malicious,https://sock
 DAT GO,fjpobenajidogfpilgbjgbglcanfjnoa,malware,malicious,,credentials stealer
 wallpaper adwares,fnfaggodhehejkigojefdehaffoneokd,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
 "Chat GPT for Chrome with GPT-5, Claude Sonnet & DeepSeek AI",fnmihdojmnkclgjpcoonokmkhjpjechg,malware,malicious,https://www.ox.security/blog/malicious-chrome-extensions-steal-chatgpt-deepseek-conversations/,hash: 98d1f151872c27d0abae3887f7d6cb6e4ce29e99ad827cb077e1232bc4a69c00
-Kamino,foljknabefdkeifdkapmaenecijjmlom,malware,malicious,,used for phishing
 Dice King - Classic Craps And Roll Game,gbaoddbbpompjhmilbgiaapkkakldlpc,malware,malicious,https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2,
 ActionReplay Pro,gbbfiogknfkmkiihmdifbenmflboageg,malware,malicious,,credentials stealer
 Adblock all advertisement - No Ads extension,gbdjcgalliefpinpmggefbloehmmknca,malware,malicious,https://palant.info/2025/01/20/malicious-extensions-circumvent-googles-remote-code-ban/#netflix-party,
