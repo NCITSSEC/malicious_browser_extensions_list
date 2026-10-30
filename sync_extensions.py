@@ -331,7 +331,7 @@ def main():
             
         # [조건 4] 'metadata_category' 값이 PROXY, VPN, PROXY/VPN 제외
         cat_upper = cat.upper()
-        if cat_upper in ('PROXY', 'VPN', 'PROXY/VPN') or 'PROXY/VPN' in cat_upper:
+        if cat_upper in ('PROXY', 'VPN', 'PROXY/VPN') or 'PROXY/VPN' or 'password manager' or 'cryptocurrency' in cat_upper:
             continue
             
         if eid in seen_ids:
