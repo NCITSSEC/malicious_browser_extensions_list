@@ -329,9 +329,9 @@ def main():
         if not name or name.lower() in ('null', 'n/a', 'na', 'none'):
             continue
             
-        # [조건 4] 'metadata_category' 값이 PROXY, VPN, PROXY/VPN 제외
+        # [조건 4] 지정 카테고리 제외 (대소문자 무시)
         cat_upper = cat.upper()
-        if cat_upper in ('PROXY', 'VPN', 'PROXY/VPN') or 'PROXY/VPN' or 'password manager' or 'cryptocurrency' in cat_upper:
+        if cat_upper in ('PROXY', 'VPN', 'PROXY/VPN', 'PASSWORD MANAGER', 'CRYPTOCURRENCY') or 'PROXY/VPN' in cat_upper:
             continue
             
         if eid in seen_ids:
@@ -371,6 +371,12 @@ def main():
         raise RuntimeError(f'{len(failed_checks)}개 스토어 상태 확인 실패: CSV 및 관측 이력 갱신을 중단합니다.')
                 
     print(f"[+] 최종 유효 데이터 수: {len(active_results)}개")
+
+    if not active_results:
+        raise RuntimeError(
+            '최종 유효 데이터가 0건입니다. 기존 CSV 및 관측 이력을 보호하기 위해 '
+            '갱신을 중단합니다. 카테고리 필터와 스토어 검증 결과를 확인하세요.'
+        )
     
     # 신규 확장 프로그램 식별 (기존 목록에 없고 제외 대상도 아닌 신규)
     new_items = select_new_items(active_results, state, now)
