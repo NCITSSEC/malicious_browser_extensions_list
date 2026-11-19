@@ -12,7 +12,6 @@ Mahjong Deluxe,amnaljnjmgajgajelnplfmidgjgbjfhe,malware,malicious,https://socket
 Amazon ASIN Copy,aohfjaadlbiifnnajpobdhokecjokhab,malware,malicious,https://socket.dev/blog/malicious-chrome-extension-performs-hidden-affiliate-hijacking?utm_medium=feed,
 LightDownload,bagfjpcfejdcfnhckcjcpekcjbencfeb,malware,malicious,,credentials stealer
 Crazy Freekick,bbjdlbemjklojnbifkgameepcafflmem,malware,malicious,https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2,
-JSON Formatter,bcjindcccaagfpapjjmafapmmgkkhgoa,PUP,privacy,https://chromewebstore.google.com/detail/json-formatter/bcjindcccaagfpapjjmafapmmgkkhgoa/reviews,https://x.com/wesbos/status/2039355472830939319?s=20
 wallpaper adwares,bdnlfekadefohaaphlndnnieaolmpaao,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
 TinaMind - The GPT-4o-powered AI Assistant!,befflofjcniongenjmbkgkoljhgliihe,compromised,malicious,https://www.extensiontotal.com/cyberhaven-incident-live,compromised extensions
 Amazon Profit Calculator,behckapcoohededfbgjgkgefgkpodeho,malware,malicious,https://socket.dev/blog/malicious-chrome-extension-performs-hidden-affiliate-hijacking?utm_medium=feed,
@@ -84,7 +83,6 @@ Amazon Character Count & Seller Tools,goikoilmhcgfidolicnbgggdpckdcoam,malware,m
 wallpaper adwares,gpkgjopaiakcnokecmocecnbpghkkjhg,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
 Flicking Soccer,hbobdcfpgonejphpemijgjddanoipbkj,malware,malicious,https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2,
 Schedulebeats Sync,hcllfblgjihnjmmdjhnahnoegopnllab,malware,malicious,,credentials stealer
-Smartproxy Extension,hdemabfejemmmicoabglpocdmmkjphpo,Defense Evasion,phishing,https://chromewebstore.google.com/detail/smartproxy-extension/hdemabfejemmmicoabglpocdmmkjphpo,residentials proxies often used by attackers in phishing attempts
 Proxy SwitchyOmega (V3),hihblcmlaaademjlakdpicchbjnnnkbo,compromised,malicious,https://www.extensiontotal.com/cyberhaven-incident-live,compromised extensions
 Watercraft Rush,hkbihmjhjmehlocilifheeaeiljabenb,malware,malicious,https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2,
 Amazon Sticky Notes,hkhmodcdjhcidbcncgmnknjppphcpgmh,malware,malicious,https://socket.dev/blog/malicious-chrome-extension-performs-hidden-affiliate-hijacking?utm_medium=feed,
@@ -165,7 +163,6 @@ Farm - Slot Machine,ndajcmifndknmkckdcdefkpgcodciggk,malware,malicious,https://s
 wallpaper adwares,ndeeopioahgjcemhhbgdoednmaleeemp,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
 GraphQL Network Inspector,ndlbedplllcgconngcnfmkadhokfaaln,compromised,malicious,https://www.extensiontotal.com/cyberhaven-incident-live,compromised extensions
 Rail Maze Puzzle,nelbpdjegmhhgpfcjclhdmkcglimkjpp,malware,malicious,https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2,
-OpenClaw Browser Relay,nglingapjinhecnfejdcpihlpneeadjp,malware,malicious,https://chromewebstore.google.com/detail/openclaw-browser-relay/nglingapjinhecnfejdcpihlpneeadjp,Browser-control relay extension with local WebSocket/CDP automation - third-party depreciated package for openclaw. Added for enterprise blocklist - not as confirmed malware
 wallpaper adwares,ngnfdhfeccjahkpielcjbjebipckhoii,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
 Amazon BSR Fast View,nhilffccdbcjcnoopblecppbhalagpaf,malware,malicious,https://socket.dev/blog/malicious-chrome-extension-performs-hidden-affiliate-hijacking?utm_medium=feed,
 Amazon Quick Brand Search,nigamacoibifjohkmepefofohfedblgg,malware,malicious,https://socket.dev/blog/malicious-chrome-extension-performs-hidden-affiliate-hijacking?utm_medium=feed,
@@ -184,7 +181,6 @@ wallpaper adwares,ooepolkedgpkhojiihdjoajnjohciajl,malware,malicious,https://git
 wallpaper adwares,oojlpfnmoijaiephcdakeggdbbfdbanb,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
 wallpaper adwares,opdcfknedcfgiophhnojmnljpndojbom,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
 Cyberhaven security extension V3,pajkjnmeojmbapicmbpliphjmcekeaac,compromised,malicious,https://www.extensiontotal.com/cyberhaven-incident-live,compromised extensions
-Web to PDF,pamnlaoeobcmhkliljfaofekeddpmfoh,malware,malicious,https://chromewebstore.google.com/detail/web-to-pdf/pamnlaoeobcmhkliljfaofekeddpmfoh,linked to LevelBlue Labs report: Infrastructure of Interest: Medium Confidence InfoStealer - blocking just in case
 Whack 'em All,pdgaknahllnfldmclpcllpieafkaibmf,malware,malicious,https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2,
 Video Poker Jacks or Better,peflgkmfmoijonfgcjdlpnnfdegnlaji,malware,malicious,https://socket.dev/blog/108-chrome-ext-linked-to-data-exfil-session-theft-shared-c2,
 wallpaper adwares,phcfjgnhnpfjhpghiacilpocpcdcgljm,malware,malicious,https://github.com/PaloAltoNetworks/Unit42-timely-threat-intel/blob/main/2026-06-01-Adware-Wallpaper-Chrome-Extension-Campaign.txt,
